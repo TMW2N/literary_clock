@@ -1,5 +1,5 @@
 // =============================================================================
-// Literary Clock — Elecrow CrowPanel 4.2" ESP32-S3
+// Literary Clock — Elecrow CrowPanel 4.2" ESP32-S3 (UC8276C)
 // =============================================================================
 // Data file format (LittleFS, /HH.txt, one or more lines per minute):
 //   MM|Quote text|Author|Book Title
@@ -8,8 +8,12 @@
 
 #include <Arduino.h>
 #include <SPI.h>
-#include "EPD.h"
-uint8_t ImageBW[EPD_W * EPD_H / 8];  // 400x300/8 = 15000 bytes
+#include <GxEPD2_BW.h>
+#include <Fonts/FreeSerif9pt7b.h>
+#include <Fonts/FreeSerif12pt7b.h>
+#include <Fonts/FreeSerif18pt7b.h>
+#include <Fonts/FreeSerif24pt7b.h>
+#include <Fonts/FreeSans9pt7b.h>
 #include <WiFi.h>
 #include <WiFiManager.h>
 #include <HTTPClient.h>
@@ -19,15 +23,15 @@ uint8_t ImageBW[EPD_W * EPD_H / 8];  // 400x300/8 = 15000 bytes
 #include <cstring>
 #include <vector>
 
-#include <Adafruit_GFX.h>
-#include <Fonts/FreeSerif9pt7b.h>
-#include <Fonts/FreeSerif12pt7b.h>
-#include <Fonts/FreeSerif18pt7b.h>
-#include <Fonts/FreeSerif24pt7b.h>
-#include <Fonts/FreeSans9pt7b.h>
-#include "EPDDisplay.h"
+static constexpr int EPD_SCK_PIN = 12;
+static constexpr int EPD_MOSI_PIN = 11;
+static constexpr int EPD_CS_PIN = 45;
+static constexpr int EPD_DC_PIN = 46;
+static constexpr int EPD_RST_PIN = 47;
+static constexpr int EPD_BUSY_PIN = 48;
 
-EPDDisplay gfx(EPD_W, EPD_H);
+GxEPD2_BW<GxEPD2_420_SE0420NQ04, GxEPD2_420_SE0420NQ04::HEIGHT> gfx(
+  GxEPD2_420_SE0420NQ04(EPD_CS_PIN, EPD_DC_PIN, EPD_RST_PIN, EPD_BUSY_PIN));
 
 // =============================================================================
 // CONFIGURATION
@@ -49,8 +53,8 @@ const char* NTP_SERVERS[] = {"pool.ntp.org", "time.google.com", "time.nist.gov"}
 // =============================================================================
 // DISPLAY LAYOUT
 // =============================================================================
-#define DISPLAY_W  EPD_W
-#define DISPLAY_H  EPD_H
+static constexpr int DISPLAY_W = GxEPD2_420_SE0420NQ04::WIDTH;
+static constexpr int DISPLAY_H = GxEPD2_420_SE0420NQ04::HEIGHT;
 #define MARGIN_X   8
 
 // =============================================================================
@@ -77,6 +81,7 @@ void   wordWrapPixel(const GFXfont* font, const String& text, int maxWidth,
 void   renderDisplay(const String& quote, const String& author,
                      const String& book, int hour, int minute);
 void   showMessage(const char* line1, const char* line2 = nullptr);
+void   updateDisplay();
 String detectTimezone();
 String buildPOSIXtz(const String& ianaZone, long offsetSec);
 void   sanitizeASCII(String& s);
@@ -130,15 +135,14 @@ void setup() {
   digitalWrite(7, HIGH);
   delay(50);
 
-  // Always do full EPD init
-  Serial.println("EPD init...");
-  EPD_GPIOInit();
-  EPD_Init();
-  // Seed old-frame register (0x26) with white — no refresh yet
-  EPD_WriteWhiteToOldFrame();
-  Paint_NewImage(ImageBW, EPD_W, EPD_H, 0, WHITE);
-  Paint_Clear(WHITE);
-  Serial.println("EPD ready");
+  // Power and initialize the UC8276C panel through GxEPD2.
+  Serial.println("GxEPD2 init...");
+  SPI.begin(EPD_SCK_PIN, -1, EPD_MOSI_PIN, EPD_CS_PIN);
+  gfx.epd2.selectSPI(SPI, SPISettings(4000000, MSBFIRST, SPI_MODE0));
+  gfx.init(0);
+  gfx.setRotation(0);
+  gfx.setFullWindow();
+  Serial.println("GxEPD2 ready");
 
   // SNTP sync on every wake to correct RC drift. Only use WiFiManager when no
   // credentials are saved yet or when explicitly reset via BOOT button (above).
@@ -166,9 +170,7 @@ if (connected) {
   if (!getTime(&t)) {
     Serial.println("ERROR: no valid time");
     showMessage("No time sync.", "Check WiFi.");
-    EPD_Display(ImageBW);
-    EPD_Update();
-    EPD_Sleep();
+    updateDisplay();
     deepSleepUntilNextMinute(0);
   }
   Serial.printf("Local time: %02d:%02d:%02d\n", t.tm_hour, t.tm_min, t.tm_sec);
@@ -180,9 +182,7 @@ if (connected) {
   if (!LittleFS.begin(false)) {
     Serial.println("ERROR: LittleFS failed");
     showMessage("Storage error.", "Re-upload data.");
-    EPD_Display(ImageBW);
-    EPD_Update();
-    EPD_Sleep();
+    updateDisplay();
     deepSleepUntilNextMinute(t.tm_sec);
   }
   Serial.println("LittleFS OK");
@@ -201,9 +201,7 @@ if (connected) {
   Serial.println("Rendering...");
   renderDisplay(quote, author, book, t.tm_hour, t.tm_min);
   Serial.println("Pushing to display...");
-  EPD_Display(ImageBW);
-  EPD_Update();
-  EPD_Sleep();
+  updateDisplay();
   Serial.println("Display updated");
 
   // Re-read the time so our sleep math accounts for how long 
@@ -544,14 +542,14 @@ static const int numQuoteFonts = 4;
 
 void renderDisplay(const String& quote, const String& author,
                    const String& book, int hour, int minute) {
-  Paint_Clear(WHITE);
+  gfx.fillScreen(GxEPD_WHITE);
 
   int textWidth = DISPLAY_W - MARGIN_X * 2;
 
   // Time — top right (FreeSans 9pt)
   const GFXfont* timeFont = &FreeSans9pt7b;
   gfx.setFont(timeFont);
-  gfx.setTextColor(BLACK);
+  gfx.setTextColor(GxEPD_BLACK);
   char timeBuf[6];
   snprintf(timeBuf, sizeof(timeBuf), "%02d:%02d", hour, minute);
   int16_t tx1, ty1;
@@ -617,7 +615,7 @@ void renderDisplay(const String& quote, const String& author,
   }
 
   gfx.setFont(chosenFont);
-  gfx.setTextColor(BLACK);
+  gfx.setTextColor(GxEPD_BLACK);
   for (const auto& ln : qLines) {
     if (quoteY > quoteBot) break;  // don't overwrite attribution
     gfx.setCursor(MARGIN_X, quoteY);
@@ -628,7 +626,7 @@ void renderDisplay(const String& quote, const String& author,
   // Attribution — bottom
   if (attr.length() > 0) {
     gfx.setFont(attrFont);
-    gfx.setTextColor(BLACK);
+    gfx.setTextColor(GxEPD_BLACK);
     // Truncate if too wide
     int16_t ax1, ay1;
     uint16_t aw, ah;
@@ -646,13 +644,18 @@ void renderDisplay(const String& quote, const String& author,
 // ERROR SCREEN
 // =============================================================================
 void showMessage(const char* line1, const char* line2) {
-  Paint_Clear(WHITE);
+  gfx.fillScreen(GxEPD_WHITE);
   gfx.setFont(&FreeSans9pt7b);
-  gfx.setTextColor(BLACK);
+  gfx.setTextColor(GxEPD_BLACK);
   gfx.setCursor(MARGIN_X, 30);
   gfx.print(line1);
   if (line2) {
     gfx.setCursor(MARGIN_X, 55);
     gfx.print(line2);
   }
+}
+
+void updateDisplay() {
+  gfx.display();
+  gfx.hibernate();
 }
