@@ -3,20 +3,20 @@
 
 Display a different literary quote every minute on an e-paper display. Each hour of the day has 60 unique quotes from literature, philosophy, and poetry—a minimalist desk clock that doubles as daily inspiration.
 
-**Now supports the Elecrow CrowPanel 4.2" ESP32-S3 e-paper display (SSD1680, 400×300 px, monochrome, JST-PH 2.0mm LiPo connector).**
+**Now supports the Elecrow CrowPanel 4.2" ESP32-S3 e-paper display (UC8276C, 400×300 px, monochrome, JST-PH 2.0mm LiPo connector).**
 
 
 
 ## Hardware
 
 - **Elecrow CrowPanel 4.2" ESP32-S3** (recommended)
-  - 400×300 px e-paper display (SSD1680 controller, monochrome)
+  - 400×300 px e-paper display (UC8276C controller, monochrome)
   - JST-PH 2.0mm LiPo battery connector (3.7V, 500–1000mAh recommended)
   - USB-C for power/programming
 - **ESP32-S3** microcontroller (other variants may work)
-- **E-paper display**: 4.2" (400×300 px, SSD1680) or 2.13" (250×122 px, legacy)
+- **E-paper display**: 4.2" (400×300 px, UC8276C) or 2.13" (250×122 px, legacy)
 
-> This project is optimized for the Elecrow CrowPanel 4.2" ESP32-S3. Other SSD1680-based displays may work with minor code changes.
+> This project is optimized for the Elecrow CrowPanel 4.2" ESP32-S3. Other UC8276C-based displays may work with minor code changes.
 
 ## Quick Start
 
